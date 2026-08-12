@@ -16,6 +16,8 @@ from dataclasses import dataclass
 
 import anthropic
 
+from ai_document_mcp._llm import response_text
+
 logger = logging.getLogger(__name__)
 
 CHUNK_SIZE_CHARS = 1200
@@ -99,7 +101,7 @@ def enrich_chunk(
         max_tokens=150,
         messages=[{"role": "user", "content": prompt}],
     )
-    context_note = response.content[0].text.strip()
+    context_note = response_text(response).strip()
 
     return Chunk(
         chunk_id=f"{document_id}::chunk_{chunk_index}",

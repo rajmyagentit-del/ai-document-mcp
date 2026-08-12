@@ -16,6 +16,8 @@ from dataclasses import dataclass
 import anthropic
 import pymupdf
 
+from ai_document_mcp._llm import response_text
+
 logger = logging.getLogger(__name__)
 
 # Below this many characters of extracted text, a page is treated as "likely scanned"
@@ -104,4 +106,4 @@ def _extract_via_vision(image_bytes: bytes, client: anthropic.Anthropic) -> str:
             }
         ],
     )
-    return response.content[0].text.strip()
+    return response_text(response).strip()

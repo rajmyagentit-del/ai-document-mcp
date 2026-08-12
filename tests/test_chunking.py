@@ -1,6 +1,6 @@
 """Unit tests for chunking. No API calls -- pure logic."""
 
-from ai_document_mcp.chunking import CHUNK_OVERLAP_CHARS, CHUNK_SIZE_CHARS, chunk_pages
+from ai_document_mcp.chunking import CHUNK_OVERLAP_CHARS, chunk_pages
 
 
 def test_chunk_pages_short_text_single_chunk():

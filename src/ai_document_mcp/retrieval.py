@@ -24,6 +24,7 @@ import anthropic
 import chromadb
 from rank_bm25 import BM25Okapi
 
+from ai_document_mcp._llm import response_text
 from ai_document_mcp.storage import fetch_all_chunks
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ def _bm25_search(
     """Returns [(chunk_id, rank)] ranked by BM25 keyword score, best first."""
     all_chunks = fetch_all_chunks(collection)
     ids = all_chunks["ids"]
-    documents = all_chunks["documents"]
+    documents = all_chunks["documents"] or []
 
     if not ids:
         return []
@@ -75,7 +76,7 @@ def _bm25_search(
     tokenized_query = query.lower().split()
     scores = bm25.get_scores(tokenized_query)
 
-    ranked = sorted(zip(ids, scores), key=lambda pair: pair[1], reverse=True)
+    ranked = sorted(zip(ids, scores, strict=True), key=lambda pair: pair[1], reverse=True)
     return [(chunk_id, rank) for rank, (chunk_id, _score) in enumerate(ranked[:n_results])]
 
 
@@ -105,7 +106,8 @@ def hybrid_search(
 
     top_ids = [chunk_id for chunk_id, _ in fused]
     hydrated = collection.get(ids=top_ids, include=["documents", "metadatas"])
-    meta_by_id = dict(zip(hydrated["ids"], hydrated["metadatas"]))
+    hydrated_metadatas = hydrated["metadatas"] or []
+    meta_by_id = dict(zip(hydrated["ids"], hydrated_metadatas, strict=True))
 
     results = []
     for chunk_id, score in fused:
@@ -115,10 +117,10 @@ def hybrid_search(
         results.append(
             RetrievedChunk(
                 chunk_id=chunk_id,
-                raw_text=meta["raw_text"],
-                context_note=meta["context_note"],
-                document_id=meta["document_id"],
-                page_number=meta["page_number"],
+                raw_text=str(meta["raw_text"]),
+                context_note=str(meta["context_note"]),
+                document_id=str(meta["document_id"]),
+                page_number=int(meta["page_number"]),  # type: ignore[arg-type]
                 score=score,
             )
         )
@@ -145,7 +147,7 @@ def _judge_confidence(
         max_tokens=5,
         messages=[{"role": "user", "content": prompt}],
     )
-    verdict = response.content[0].text.strip().upper()
+    verdict = response_text(response).strip().upper()
     return verdict.startswith("YES")
 
 
@@ -163,7 +165,7 @@ def _reformulate_query(query: str, client: anthropic.Anthropic) -> str:
         max_tokens=100,
         messages=[{"role": "user", "content": prompt}],
     )
-    return response.content[0].text.strip()
+    return response_text(response).strip()
 
 
 def agentic_search(

@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 
 import chromadb
+from chromadb.api.types import GetResult
 
 from ai_document_mcp.chunking import Chunk
 
@@ -50,7 +51,7 @@ def store_chunks(collection: chromadb.Collection, chunks: list[Chunk]) -> None:
     )
 
 
-def fetch_all_chunks(collection: chromadb.Collection) -> dict:
+def fetch_all_chunks(collection: chromadb.Collection) -> GetResult:
     """Fetch every chunk in the collection (ids, documents, metadatas).
 
     Used to build the in-memory BM25 keyword index. Fine at portfolio scale

@@ -139,16 +139,17 @@ def search_documents(query: str, n_results: int = 5) -> dict:
 def get_document_status(document_id: str) -> dict:
     """Check how many chunks are stored for a given document id."""
     all_chunks = fetch_all_chunks(_collection)
+    all_metadatas = all_chunks["metadatas"] or []
     matching = [
         (chunk_id, meta)
-        for chunk_id, meta in zip(all_chunks["ids"], all_chunks["metadatas"])
+        for chunk_id, meta in zip(all_chunks["ids"], all_metadatas, strict=True)
         if meta["document_id"] == document_id
     ]
 
     if not matching:
         return {"document_id": document_id, "found": False}
 
-    pages = sorted({meta["page_number"] for _, meta in matching})
+    pages = sorted({int(meta["page_number"]) for _, meta in matching})  # type: ignore[arg-type]
     return {
         "document_id": document_id,
         "found": True,
