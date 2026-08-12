@@ -12,6 +12,7 @@ import base64
 import binascii
 import logging
 import os
+from functools import lru_cache
 
 import anthropic
 from fastmcp import FastMCP
@@ -35,9 +36,24 @@ MAX_PDF_BYTES = 20 * 1024 * 1024  # 20 MB
 
 mcp = FastMCP("ai-document-mcp")
 
-_anthropic_client = anthropic.Anthropic()  # reads ANTHROPIC_API_KEY from env
-_chroma_client = get_chroma_client()
-_collection = get_collection(_chroma_client)
+
+@lru_cache(maxsize=1)
+def _get_anthropic_client() -> anthropic.Anthropic:
+    """Lazily create the Anthropic client on first use, not at import time.
+
+    Creating this eagerly at module level would mean simply *importing*
+    server.py requires a live ANTHROPIC_API_KEY -- which breaks things like
+    CI test collection, where the module gets imported but the key isn't
+    (and shouldn't need to be) present.
+    """
+    return anthropic.Anthropic()
+
+
+@lru_cache(maxsize=1)
+def _get_document_collection():
+    """Lazily create the Chroma Cloud connection on first use, same reasoning."""
+    client = get_chroma_client()
+    return get_collection(client)
 
 
 @mcp.tool()
@@ -67,9 +83,9 @@ def ingest_document(document_id: str, pdf_base64: str) -> dict:
     logger.info("Ingesting document_id=%s (%d bytes)", document_id, len(pdf_bytes))
 
     # Replace any previous version of this document.
-    delete_document(_collection, document_id)
+    delete_document(_get_document_collection(), document_id)
 
-    pages = extract_pdf(pdf_bytes, _anthropic_client)
+    pages = extract_pdf(pdf_bytes, _get_anthropic_client())
     full_document_text = "\n\n".join(p.text for p in pages)
 
     raw_chunks = chunk_pages(document_id, [(p.page_number, p.text) for p in pages])
@@ -81,12 +97,12 @@ def ingest_document(document_id: str, pdf_base64: str) -> dict:
             page_number=page_number,
             chunk_text=chunk_text,
             full_document_text=full_document_text,
-            client=_anthropic_client,
+            client=_get_anthropic_client(),
         )
         for i, (page_number, chunk_text) in enumerate(raw_chunks)
     ]
 
-    store_chunks(_collection, enriched_chunks)
+    store_chunks(_get_document_collection(), enriched_chunks)
 
     vision_pages = sum(1 for p in pages if p.method == "vision_ocr")
     logger.info(
@@ -116,7 +132,7 @@ def search_documents(query: str, n_results: int = 5) -> dict:
         query: The natural-language question or search query.
         n_results: How many top chunks to return (default 5).
     """
-    result = agentic_search(_collection, _anthropic_client, query, n_results)
+    result = agentic_search(_get_document_collection(), _get_anthropic_client(), query, n_results)
 
     return {
         "query_used": result.query_used,
@@ -138,7 +154,7 @@ def search_documents(query: str, n_results: int = 5) -> dict:
 @mcp.tool()
 def get_document_status(document_id: str) -> dict:
     """Check how many chunks are stored for a given document id."""
-    all_chunks = fetch_all_chunks(_collection)
+    all_chunks = fetch_all_chunks(_get_document_collection())
     all_metadatas = all_chunks["metadatas"] or []
     matching = [
         (chunk_id, meta)
