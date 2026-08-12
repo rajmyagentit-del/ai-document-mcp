@@ -31,6 +31,10 @@ packages = ["src/ai_document_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "costs_money: test makes real Anthropic API and/or Chroma Cloud calls; excluded from default runs",
+]
+addopts = "-m 'not costs_money'"
 
 [tool.ruff]
 line-length = 100
