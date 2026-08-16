@@ -4,6 +4,10 @@ Exposes three tools over MCP:
   - ingest_document: extract, chunk, contextually enrich, and store a PDF
   - search_documents: hybrid + agentic retrieval over stored documents
   - get_document_status: check what's stored for a given document id
+
+Also exposes a browser-friendly live demo at /demo (HTML page) and
+/demo/search (JSON endpoint), on top of the same search_documents logic
+used by the MCP tool.
 """
 
 from __future__ import annotations
@@ -31,7 +35,6 @@ from ai_document_mcp.storage import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Guardrail: reject absurdly large uploads before we ever decode/parse them.
 MAX_PDF_BYTES = 20 * 1024 * 1024  # 20 MB
 
 mcp = FastMCP("ai-document-mcp")
@@ -39,13 +42,7 @@ mcp = FastMCP("ai-document-mcp")
 
 @lru_cache(maxsize=1)
 def _get_anthropic_client() -> anthropic.Anthropic:
-    """Lazily create the Anthropic client on first use, not at import time.
-
-    Creating this eagerly at module level would mean simply *importing*
-    server.py requires a live ANTHROPIC_API_KEY -- which breaks things like
-    CI test collection, where the module gets imported but the key isn't
-    (and shouldn't need to be) present.
-    """
+    """Lazily create the Anthropic client on first use, not at import time."""
     return anthropic.Anthropic()
 
 
@@ -82,7 +79,6 @@ def ingest_document(document_id: str, pdf_base64: str) -> dict:
 
     logger.info("Ingesting document_id=%s (%d bytes)", document_id, len(pdf_bytes))
 
-    # Replace any previous version of this document.
     delete_document(_get_document_collection(), document_id)
 
     pages = extract_pdf(pdf_bytes, _get_anthropic_client())
@@ -174,6 +170,13 @@ def get_document_status(document_id: str) -> dict:
     }
 
 
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request):
+    from starlette.responses import JSONResponse
+
+    return JSONResponse({"status": "ok"})
+
+
 DEMO_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -202,11 +205,7 @@ DEMO_HTML = """<!DOCTYPE html>
   .wrap { max-width: 720px; margin: 0 auto; }
   h1 { font-size: 22px; margin-bottom: 4px; }
   p.sub { color: var(--muted); margin-top: 0; font-size: 14px; }
-  .searchbox {
-    display: flex;
-    gap: 8px;
-    margin: 24px 0;
-  }
+  .searchbox { display: flex; gap: 8px; margin: 24px 0; }
   input[type=text] {
     flex: 1;
     background: var(--panel);
@@ -272,7 +271,6 @@ async function runSearch() {
   if (!query) return;
   button.disabled = true;
   output.innerHTML = '<div class="loading">Searching...</div>';
-
   try {
     const res = await fetch('/demo/search', {
       method: 'POST',
@@ -295,11 +293,9 @@ function render(data) {
     html += '<span class="badge corrected">self-corrected (query rewritten)</span>';
   }
   html += '</div>';
-
   if (data.query_used) {
     html += '<div class="sub" style="margin-bottom:12px;">query used: "' + escapeHtml(data.query_used) + '"</div>';
   }
-
   if (!data.results || data.results.length === 0) {
     html += '<div class="empty">No relevant results found.</div>';
   } else {
@@ -348,5 +344,8 @@ async def demo_search(request):
 
     result = search_documents(query=query, n_results=n_results)
     return JSONResponse(result)
+
+
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", "8000"))
     mcp.run(transport="http", host="0.0.0.0", port=port)
