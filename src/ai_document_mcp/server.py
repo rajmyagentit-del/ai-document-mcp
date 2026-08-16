@@ -174,13 +174,179 @@ def get_document_status(document_id: str) -> dict:
     }
 
 
-@mcp.custom_route("/health", methods=["GET"])
-async def health(request):
+DEMO_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Document MCP -- Live Demo</title>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #12151c;
+    --border: #232838;
+    --text: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #7c9cff;
+    --good: #4ade80;
+    --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    padding: 40px 20px;
+  }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.sub { color: var(--muted); margin-top: 0; font-size: 14px; }
+  .searchbox {
+    display: flex;
+    gap: 8px;
+    margin: 24px 0;
+  }
+  input[type=text] {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-size: 15px;
+  }
+  button {
+    background: var(--accent);
+    border: none;
+    border-radius: 8px;
+    padding: 12px 20px;
+    color: #0b0d12;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 15px;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .badges { display: flex; gap: 8px; margin-bottom: 16px; }
+  .badge {
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .badge.high { color: var(--good); border-color: var(--good); }
+  .badge.low { color: var(--warn); border-color: var(--warn); }
+  .badge.corrected { color: var(--accent); border-color: var(--accent); }
+  .result {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 12px;
+  }
+  .result .meta { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+  .result .context { color: var(--accent); font-size: 13px; margin-bottom: 8px; font-style: italic; }
+  .result .text { font-size: 14px; line-height: 1.5; white-space: pre-wrap; }
+  .empty { color: var(--muted); font-size: 14px; padding: 20px 0; }
+  .loading { color: var(--muted); font-size: 14px; padding: 20px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>AI Document MCP -- Live Demo</h1>
+  <p class="sub">Hybrid (vector + BM25) retrieval with contextual enrichment and agentic self-correction, running live against Chroma Cloud.</p>
+  <div class="searchbox">
+    <input type="text" id="query" placeholder="Ask something about the ingested documents..." />
+    <button id="go">Search</button>
+  </div>
+  <div id="output"></div>
+</div>
+<script>
+const input = document.getElementById('query');
+const button = document.getElementById('go');
+const output = document.getElementById('output');
+
+async function runSearch() {
+  const query = input.value.trim();
+  if (!query) return;
+  button.disabled = true;
+  output.innerHTML = '<div class="loading">Searching...</div>';
+
+  try {
+    const res = await fetch('/demo/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, n_results: 5 })
+    });
+    const data = await res.json();
+    render(data);
+  } catch (err) {
+    output.innerHTML = '<div class="empty">Request failed: ' + err + '</div>';
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function render(data) {
+  let html = '<div class="badges">';
+  html += '<span class="badge ' + (data.confidence === 'high' ? 'high' : 'low') + '">confidence: ' + data.confidence + '</span>';
+  if (data.self_corrected) {
+    html += '<span class="badge corrected">self-corrected (query rewritten)</span>';
+  }
+  html += '</div>';
+
+  if (data.query_used) {
+    html += '<div class="sub" style="margin-bottom:12px;">query used: "' + escapeHtml(data.query_used) + '"</div>';
+  }
+
+  if (!data.results || data.results.length === 0) {
+    html += '<div class="empty">No relevant results found.</div>';
+  } else {
+    for (const r of data.results) {
+      html += '<div class="result">';
+      html += '<div class="meta">' + escapeHtml(r.document_id) + ' -- page ' + r.page_number + ' -- score ' + r.score + '</div>';
+      html += '<div class="context">' + escapeHtml(r.context_note) + '</div>';
+      html += '<div class="text">' + escapeHtml(r.text) + '</div>';
+      html += '</div>';
+    }
+  }
+  output.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+button.addEventListener('click', runSearch);
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+</script>
+</body>
+</html>
+"""
+
+
+@mcp.custom_route("/demo", methods=["GET"])
+async def demo_page(request):
+    from starlette.responses import HTMLResponse
+
+    return HTMLResponse(DEMO_HTML)
+
+
+@mcp.custom_route("/demo/search", methods=["POST"])
+async def demo_search(request):
     from starlette.responses import JSONResponse
 
-    return JSONResponse({"status": "ok"})
+    body = await request.json()
+    query = body.get("query", "")
+    n_results = body.get("n_results", 5)
 
+    if not query:
+        return JSONResponse({"error": "query is required"}, status_code=400)
 
-if __name__ == "__main__":
+    result = search_documents(query=query, n_results=n_results)
+    return JSONResponse(result)
     port = int(os.environ.get("PORT", "8000"))
     mcp.run(transport="http", host="0.0.0.0", port=port)
